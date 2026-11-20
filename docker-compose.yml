@@ -1,0 +1,71 @@
+# Telemetrie-stack (Tesla Fleet Telemetry -> website).
+# Onderdelen:
+#   - fleet-telemetry: Tesla's officiële ontvanger (auto -> hier, via TLS)
+#   - mosquitto: MQTT-broker waar fleet-telemetry de signalen naartoe stuurt
+#   - bridge: Node-script dat de signalen in batches naar de website stuurt
+#   - vehicle-command: Tesla's proxy die configuraties ondertekent met onze
+#     private key (nodig om telemetrie per wagen aan te zetten)
+#   - poller: Node-script dat bij de website vraagt welke wagens aan/uit
+#     moeten en dat via de proxy regelt
+#
+# Zie README.md voor de volledige opzet (DNS, poort, certificaat).
+
+services:
+  fleet-telemetry:
+    image: tesla/fleet-telemetry:latest
+    restart: unless-stopped
+    ports:
+      - "4433:4433"   # de auto's verbinden hierop (poort doorsturen op de router!)
+    volumes:
+      - ./config/fleet-telemetry.json:/etc/fleet-telemetry/config.json:ro
+      - ./certs:/etc/fleet-telemetry/certs:ro
+    command: ["/fleet-telemetry", "-config", "/etc/fleet-telemetry/config.json"]
+    depends_on:
+      - mosquitto
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    # Geen poorten naar buiten: enkel intern netwerk.
+
+  bridge:
+    build: ./bridge
+    restart: unless-stopped
+    environment:
+      - MQTT_URL=mqtt://mosquitto:1883
+      - SITE_URL=${SITE_URL}
+      - TELEMETRIE_SECRET=${TELEMETRIE_SECRET}
+    depends_on:
+      - mosquitto
+
+  vehicle-command:
+    build: ./vehicle-command
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4443:4443"   # alleen lokaal bereikbaar
+    volumes:
+      # De private Tesla-sleutel van de app (NOOIT in git). Standaard ./keys/private-key.pem.
+      - ${TESLA_PRIVATE_KEY:-./keys/private-key.pem}:/keys/private-key.pem:ro
+      - ./certs:/certs:ro
+    environment:
+      - TESLA_HTTP_PROXY_TLS_CERT=/certs/proxy-cert.pem
+      - TESLA_HTTP_PROXY_TLS_KEY=/certs/proxy-key.pem
+      - TESLA_KEY_FILE=/keys/private-key.pem
+      - TESLA_HTTP_PROXY_HOST=0.0.0.0
+      - TESLA_HTTP_PROXY_PORT=4443
+
+  poller:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./certs:/app/certs:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - VC_PROXY=https://vehicle-command:4443
+    command: ["node", "scripts/poller.mjs"]
+    depends_on:
+      - vehicle-command
