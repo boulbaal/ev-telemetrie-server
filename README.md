@@ -49,8 +49,8 @@ beheer op vraag van de klant klaarzet (wekken, laden, lichten, claxon).
 ## Snel starten (als alles al geregeld is)
 
 ```bash
-cp .env.example .env            # invullen
-mkdir -p keys && cp /veilige/plek/private-key.pem keys/
+cp .env.example .env            # invullen (nieuw TELEMETRIE_SECRET: openssl rand -hex 32)
+mkdir -p keys && openssl ecparam -name prime256v1 -genkey -noout -out keys/private-key.pem
 bash scripts/maak-certificaat.sh telemetrie.evbatterymotorservice.eu
 docker compose up -d --build
 docker compose ps               # 5 containers "Up"
@@ -68,9 +68,9 @@ node --test scripts/*.test.mjs bridge/*.test.mjs
 
 `.env` (TELEMETRIE_SECRET, client-ID), `certs/` (server- en CA-sleutels) en
 vooral `keys/private-key.pem`: de private sleutel van de Tesla-app. Wie die
-heeft, kan namens de app configuraties en commando's naar wagens sturen. Geef
-die enkel persoonlijk of via een wachtwoordmanager door. De `.gitignore` sluit
-ze uit.
+heeft, kan namens de app configuraties en commando's naar wagens sturen. De
+`.gitignore` sluit ze uit. Bij de overdracht worden **alle geheimen nieuw
+aangemaakt** (INSTALLATIE.md, "Nieuwe geheimen").
 
 ## Bekende verbeterpunten
 

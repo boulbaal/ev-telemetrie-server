@@ -4,9 +4,9 @@ Reken op ±1 uur. Volg de stappen in volgorde. Wat je nodig hebt:
 
 - een Linux-server met Docker + Docker Compose (VPS aangeraden, zie stap 1);
 - toegang tot het DNS-beheer van `evbatterymotorservice.eu`;
-- de geheimen (persoonlijk of via een wachtwoordmanager te krijgen):
-  `TELEMETRIE_SECRET`, Tesla client-ID, en het bestand `private-key.pem` van
-  de Tesla-app;
+- toegang tot de Tesla-ontwikkelaarsapp (developer.tesla.com) en tot de
+  secrets van het websiteproject (Lovable). **Alle geheimen maak je zelf nieuw
+  aan** (zie stap 4 en "Nieuwe geheimen"); er worden geen oude doorgegeven.
 - beheerdersrechten op de website (voor de instellingen in stap 7).
 
 ---
@@ -64,15 +64,21 @@ De wagens verbinden via **TCP 4433** (TLS).
 Andere poorten hoeven niet open. De proxy (4443) luistert alleen op 127.0.0.1;
 mosquitto is enkel intern.
 
-## Stap 4 — Geheimen en .env
+## Stap 4 — Geheimen en .env (alles nieuw)
 
 ```bash
 cp .env.example .env
+openssl rand -hex 32                     # -> nieuw TELEMETRIE_SECRET
 nano .env        # SITE_URL, TELEMETRIE_SECRET, TESLA_CLIENT_ID, TELEMETRIE_HOST, TELEMETRIE_POORT
 mkdir -p keys
-cp /veilige/plek/private-key.pem keys/private-key.pem
+openssl ecparam -name prime256v1 -genkey -noout -out keys/private-key.pem
+openssl ec -in keys/private-key.pem -pubout -out keys/public-key.pem
 chmod 600 .env keys/private-key.pem
 ```
+
+Zie hieronder **"Nieuwe geheimen — wat er nog moet gebeuren"**: een nieuw
+sleutelpaar en een nieuw TELEMETRIE_SECRET moeten ook op de website en bij
+Tesla aangepast worden.
 
 - `TELEMETRIE_SECRET` moet **exact gelijk** zijn aan het secret
   `TELEMETRIE_SECRET` in het websiteproject (Lovable → Settings → Secrets).
@@ -146,11 +152,35 @@ bij de overzetting naar de live site moeten ze mee.
    (zie TESLA-APP.md, "Wat de klant doet"). Binnen enkele minuten verschijnen
    de eerste metingen in het dossier (tabblad Live meting / Dashboard_Daoud).
 
+## Nieuwe geheimen — wat er nog moet gebeuren
+
+De vorige server wordt niet overgenomen; alle geheimen worden opnieuw
+aangemaakt. Na stap 4 en 5:
+
+1. **TELEMETRIE_SECRET**: dezelfde nieuwe waarde zetten in het websiteproject
+   (Lovable → Settings → Secrets → `TELEMETRIE_SECRET`) en de website
+   opnieuw publiceren.
+2. **Sleutelpaar van de Tesla-app**:
+   - `keys/public-key.pem` op de website zetten op
+     `https://evbatterymotorservice.eu/.well-known/appspecific/com.tesla.3p.public-key.pem`
+     (vervangt de oude publieke sleutel);
+   - de partnerregistratie opnieuw doen (zie TESLA-APP.md, "Partnerdomein"), zodat
+     Tesla de nieuwe sleutel kent;
+   - gevolg: wagens met een **virtuele sleutel** (Model 3/Y, S/X vanaf 2021)
+     moeten de sleutel **opnieuw toevoegen** via
+     `https://www.tesla.com/_ak/evbatterymotorservice.eu`. Oudere S/X met de
+     schakelaar in de wagen hebben geen sleutel nodig.
+3. **Client-ID / client-secret**: in developer.tesla.com bij de app. Een nieuw
+   client-secret kan daar ook aangemaakt worden ("regenerate"); zet het dan
+   ook in de secrets van de website (`TESLA_CLIENT_SECRET`).
+4. **Certificaten**: worden in stap 5 nieuw gemaakt (eigen CA). Configuraties
+   die nog op wagens staan, wijzen naar de oude CA: start elke meting opnieuw.
+5. Oude server uitzetten en de oude geheimen als ongeldig beschouwen.
+
 ## Verhuizen van de oude server
 
-1. Nieuwe server opzetten (stappen 1–6) met dezelfde `.env`, dezelfde
-   `keys/private-key.pem` en **dezelfde `certs/`** (kopiëren). Dan blijven
-   lopende configuraties op de wagens geldig.
+1. Nieuwe server opzetten (stappen 1–6) met nieuwe geheimen (zie hierboven).
+   Wacht tot er geen meting meer loopt op de oude server.
 2. DNS-record `telemetrie` naar het nieuwe IP.
 3. Op de oude server `docker compose down` **pas** nadat er geen meting meer
    loopt (geen dossiers met telemetriestatus "actief").
